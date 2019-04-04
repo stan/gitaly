@@ -45,16 +45,23 @@ func init() {
 	}
 }
 
+// prepareSocketPath will create a socket path unless one is set in the configuration
+// managed by the administrator. The socket path must but short as listen(2) fails
+// on long socket paths. This is either achieved by using a relative directory
+// from the Gitaly binary. Or we hope that ioutil.TempDir creates a directory
+// that's not too deep.
+// A directory is needed, not a tempfile, because we will later want to set its
+// permissions to 0700. The permission change is done in the Ruby child process
 func prepareSocketPath() {
-	// The socket path must be short-ish because listen(2) fails on long
-	// socket paths. We hope/expect that ioutil.TempDir creates a directory
-	// that is not too deep. We need a directory, not a tempfile, because we
-	// will later want to set its permissions to 0700. The permission change
-	// is done in the Ruby child process.
 	var err error
-	socketDir, err = ioutil.TempDir("", "gitaly-ruby")
-	if err != nil {
-		log.Fatalf("create ruby server socket directory: %v", err)
+
+	socketDir = config.Config.InternalSocketDir
+	if socketDir == "" {
+		socketDir, err = ioutil.TempDir("", "gitaly-ruby")
+		if err != nil {
+			log.Fatalf("create ruby server socket directory: %v", err)
+		}
+
 	}
 }
 

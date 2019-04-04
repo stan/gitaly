@@ -1,0 +1,5 @@
+---
+title: Allow socket dir for Gitaly-Ruby to be configured
+merge_request: 1184
+author:
+type: added

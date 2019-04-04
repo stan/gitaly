@@ -2,10 +2,16 @@ package rubyserver
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"gitlab.com/gitlab-org/gitaly-proto/go/gitalypb"
+	"gitlab.com/gitlab-org/gitaly/internal/config"
 	"gitlab.com/gitlab-org/gitaly/internal/testhelper"
 	"google.golang.org/grpc/codes"
 )
@@ -82,4 +88,18 @@ func TestSetHeaders(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestPrepareSocketPath(t *testing.T) {
+	// Without a config value set, default to `/tmp`
+	prepareSocketPath()
+	assert.True(t, strings.HasPrefix(socketDir, "/tmp"), "socketDir does not default to /tmp")
+
+	pwd, err := os.Getwd()
+	require.NoError(t, err)
+
+	socketDir = ""
+	config.Config.Ruby.SocketDir = pwd
+	prepareSocketPath()
+	assert.False(t, filepath.IsAbs(socketDir), fmt.Sprintf("socketDir: %v is absolute", socketDir))
 }

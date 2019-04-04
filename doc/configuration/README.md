@@ -112,6 +112,7 @@ max\_rss limit.
 |restart_delay|string|no|Time memory must be high before a restart is triggered, in seconds. Default 5 minutes ("5m").|
 |num_workers|integer|no|Number of gitaly-ruby worker processes. Try increasing this number in case of ResourceExhausted errors. Default 2, minimum 2.|
 |linguist_languages_path|string|no|Override for dynamic languages.json discovery. Default: "" (use dynamic discovery).|
+|ruby_socket_dir|string|no|Path where Gitaly-Ruby will create sockets for the main Gitaly server to connect to. Defaults to the systems temp directory |
 
 ### gitlab-shell
 

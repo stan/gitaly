@@ -528,3 +528,28 @@ func TestLoadGracefulRestartTimeout(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateInternalSocketDir(t *testing.T) {
+	// No value set will skip validations
+	Config.InternalSocketDir = ""
+	assert.NoError(t, validateInternalSocketDir())
+
+	// An absolute directory needs to be passed
+	Config.InternalSocketDir = "relative/path"
+	assert.Error(t, validateInternalSocketDir(), "validation should fail on relative paths")
+
+	// An absolute directory needs to be passed
+	Config.InternalSocketDir = "relative/path"
+	assert.Error(t, validateInternalSocketDir(), "validation should fail on relative paths")
+
+	// Dir does not exist
+	Config.InternalSocketDir = "/tmp/relative/path/to/nowhere"
+	assert.Error(t, validateInternalSocketDir(), "validation should fail on a non existing directory")
+
+	dir, err := ioutil.TempDir("", t.Name())
+	require.NoError(t, err)
+	defer os.RemoveAll(dir)
+
+	Config.InternalSocketDir = dir
+	assert.NoError(t, validateInternalSocketDir())
+}

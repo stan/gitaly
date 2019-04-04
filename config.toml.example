@@ -12,6 +12,11 @@ bin_dir = "/home/git/gitaly"
 # # Optional: export metrics via Prometheus
 # prometheus_listen_addr = "localhost:9236"
 
+# # Configure where the Gitaly creates the sockets for internal connections.
+# # Defaults to the os temp dir. Non Gitaly clients should never connect to
+# # these sockets.
+# internal_socket_dir = "/home/git/gitaly/internal_sockets"
+
 # # Optional: authenticate Gitaly requests using a shared secret
 # [auth]
 # token = 'abc123secret'

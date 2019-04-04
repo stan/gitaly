@@ -43,6 +43,7 @@ type config struct {
 	Concurrency                []Concurrency `toml:"concurrency"`
 	GracefulRestartTimeout     time.Duration
 	GracefulRestartTimeoutToml duration `toml:"graceful_restart_timeout"`
+	InternalSocketDir          string   `toml:"internal_socket_dir"`
 }
 
 // TLS configuration
@@ -126,6 +127,7 @@ func Validate() error {
 		validateShell(),
 		ConfigureRuby(),
 		validateBinDir(),
+		validateInternalSocketDir(),
 	} {
 		if err != nil {
 			return err
@@ -257,4 +259,30 @@ func validateBinDir() error {
 	var err error
 	Config.BinDir, err = filepath.Abs(Config.BinDir)
 	return err
+}
+
+func validateInternalSocketDir() error {
+	dir := Config.InternalSocketDir
+	// When empty, fall back to the `/tmp` directory
+	if dir == "" {
+		return nil
+	}
+
+	if !filepath.IsAbs(dir) {
+		return fmt.Errorf("%s must be an absolute path", dir)
+	}
+
+	f, err := os.Lstat(dir)
+	switch {
+	case os.IsNotExist(err):
+		return fmt.Errorf("InternalSocketDir %s does not exit", dir)
+	case err != nil:
+		return err
+	case !f.IsDir():
+		return fmt.Errorf("InternalSocketDir %s is not a directory", dir)
+	case f.Mode().String() != "drwx------":
+		return fmt.Errorf("InternalSocketDir %s has FileMode %s, should have mask 700", dir, f.Mode().String())
+	}
+
+	return nil
 }
