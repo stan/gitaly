@@ -1,4 +1,4 @@
-package main
+package bootstrap
 
 import (
 	"context"
@@ -17,7 +17,7 @@ import (
 )
 
 // b is global because tableflip do not allow to init more than one Upgrader per process
-var b *bootstrap
+var b *Bootstrap
 var socketPath = path.Join(os.TempDir(), "test-unix-socket")
 
 // TestMain helps testing bootstrap.
@@ -25,13 +25,12 @@ var socketPath = path.Join(os.TempDir(), "test-unix-socket")
 // avoid the test suite and start a pid HTTP server on socketPath
 func TestMain(m *testing.M) {
 	var err error
-	b, err = newBootstrap("", true)
+	b, err = New("", true)
 	if err != nil {
 		panic(err)
 	}
 
-	if !b.HasParent() {
-		// Execute test suite if there is no parent.
+	if b.IsFirstBoot() {
 		os.Exit(m.Run())
 	}
 

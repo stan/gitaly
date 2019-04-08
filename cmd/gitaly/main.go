@@ -3,19 +3,24 @@ package main
 import (
 	"flag"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	log "github.com/sirupsen/logrus"
+	"gitlab.com/gitlab-org/gitaly/internal/bootstrap"
 	"gitlab.com/gitlab-org/gitaly/internal/config"
+	"gitlab.com/gitlab-org/gitaly/internal/connectioncounter"
 	"gitlab.com/gitlab-org/gitaly/internal/git"
 	"gitlab.com/gitlab-org/gitaly/internal/linguist"
+	"gitlab.com/gitlab-org/gitaly/internal/rubyserver"
 	"gitlab.com/gitlab-org/gitaly/internal/server"
 	"gitlab.com/gitlab-org/gitaly/internal/tempdir"
 	"gitlab.com/gitlab-org/gitaly/internal/version"
 	"gitlab.com/gitlab-org/labkit/tracing"
+	"google.golang.org/grpc"
 )
 
 var (
@@ -78,11 +83,10 @@ func main() {
 
 	// gitaly-wrapper is supposed to set config.EnvUpgradesEnabled in order to enable graceful upgrades
 	_, isWrapped := os.LookupEnv(config.EnvUpgradesEnabled)
-	b, err := newBootstrap(os.Getenv(config.EnvPidFile), isWrapped)
+	b, err := bootstrap.New(os.Getenv(config.EnvPidFile), isWrapped)
 	if err != nil {
 		log.WithError(err).Fatal("init bootstrap")
 	}
-	defer b.Stop()
 
 	// If invoked with -version
 	if *flagVersion {
@@ -111,30 +115,111 @@ func main() {
 
 	tempdir.StartCleaning()
 
-	if err = b.listen(); err != nil {
-		log.WithError(err).Fatal("bootstrap failed")
+	ruby, err := rubyserver.Start()
+	if err != nil {
+		log.WithError(err).Fatal("start ruby server")
 	}
 
-	if config.Config.PrometheusListenAddr != "" {
-		l, err := b.prometheusListener()
-		if err != nil {
-			log.WithError(err).Fatal("configure prometheus listener")
+	go func() {
+		<-b.Stop
+		ruby.Stop()
+	}()
+
+	insecureServer := server.NewInsecure(ruby)
+	secureServer := server.NewSecure(ruby)
+
+	for _, s := range []*grpc.Server{insecureServer, secureServer} {
+		go func(s *grpc.Server) {
+			select {
+			case <-b.Stop:
+				s.Stop()
+			case <-b.GracefulStop:
+				s.GracefulStop()
+			}
+		}(s)
+	}
+
+	if socketPath := config.Config.SocketPath; socketPath != "" {
+		b.RegisterStarter(func(listen bootstrap.ListenFunc, errCh chan<- error) error {
+			l, err := createUnixListener(listen, socketPath, !b.IsFirstBoot())
+			if err != nil {
+				return err
+			}
+
+			log.WithField("address", socketPath).Info("listening on unix socket")
+			go func() {
+				errCh <- insecureServer.Serve(connectioncounter.New("unix", l))
+			}()
+
+			return nil
+		})
+	}
+
+	for _, cfg := range []struct {
+		name, addr string
+		s          *grpc.Server
+	}{
+		{name: "tcp", addr: config.Config.ListenAddr, s: insecureServer},
+		{name: "tls", addr: config.Config.TLSListenAddr, s: secureServer},
+	} {
+		if cfg.addr == "" {
+			continue
 		}
 
-		promMux := http.NewServeMux()
-		promMux.Handle("/metrics", promhttp.Handler())
-
-		server.AddPprofHandlers(promMux)
-
-		go func() {
-			err = http.Serve(l, promMux)
+		b.RegisterStarter(func(listen bootstrap.ListenFunc, errCh chan<- error) error {
+			l, err := listen("tcp", cfg.addr)
 			if err != nil {
-				log.WithError(err).Fatal("Unable to serve prometheus")
+				return err
 			}
-		}()
+
+			log.WithField("address", cfg.addr).Infof("listening at %s address", cfg.name)
+			go func() {
+				errCh <- cfg.s.Serve(connectioncounter.New(cfg.name, l))
+			}()
+
+			return nil
+		})
 	}
 
-	b.run()
+	if addr := config.Config.PrometheusListenAddr; addr != "" {
+		b.RegisterExtraStarter(func(listen bootstrap.ListenFunc) error {
+			l, err := listen("tcp", addr)
+			if err != nil {
+				return err
+			}
 
-	log.Fatal("shutting down")
+			log.WithField("address", addr).Info("starting prometheus listener")
+
+			promMux := http.NewServeMux()
+			promMux.Handle("/metrics", promhttp.Handler())
+
+			server.AddPprofHandlers(promMux)
+
+			go func() {
+				if err := http.Serve(l, promMux); err != nil {
+					log.WithError(err).Fatal("Unable to serve prometheus")
+				}
+			}()
+
+			return nil
+		})
+	}
+
+	if err := b.Start(); err != nil {
+		log.WithError(err).Fatal("unable to start listeners")
+	}
+
+	b.Run()
+
+	log.Error("shutting down")
+}
+
+func createUnixListener(listen bootstrap.ListenFunc, socketPath string, removeOld bool) (net.Listener, error) {
+	if removeOld {
+		if err := os.Remove(socketPath); err != nil && !os.IsNotExist(err) {
+			return nil, err
+		}
+	}
+
+	return listen("unix", socketPath)
 }
