@@ -119,11 +119,7 @@ func main() {
 	if err != nil {
 		log.WithError(err).Fatal("start ruby server")
 	}
-
-	go func() {
-		<-b.Stop
-		ruby.Stop()
-	}()
+	defer ruby.Stop()
 
 	insecureServer := server.NewInsecure(ruby)
 	secureServer := server.NewSecure(ruby)
