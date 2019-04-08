@@ -126,12 +126,8 @@ func main() {
 
 	for _, s := range []*grpc.Server{insecureServer, secureServer} {
 		go func(s *grpc.Server) {
-			select {
-			case <-b.Stop:
-				s.Stop()
-			case <-b.GracefulStop:
-				s.GracefulStop()
-			}
+			<-b.GracefulStop
+			s.GracefulStop()
 		}(s)
 	}
 

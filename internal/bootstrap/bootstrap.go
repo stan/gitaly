@@ -15,7 +15,6 @@ import (
 )
 
 type Bootstrap struct {
-	Stop         chan struct{}
 	GracefulStop chan struct{}
 
 	upgrader      *tableflip.Upgrader
@@ -75,7 +74,6 @@ func New(pidFile string, upgradesEnabled bool) (*Bootstrap, error) {
 
 	return &Bootstrap{
 		upgrader:     upg,
-		Stop:         make(chan struct{}),
 		GracefulStop: gracefulStopCh,
 	}, nil
 }
@@ -145,8 +143,6 @@ func (b *Bootstrap) Wait() error {
 		err = fmt.Errorf("received signal %q", s)
 	case err = <-b.errChan:
 	}
-
-	close(b.Stop)
 
 	return err
 }
