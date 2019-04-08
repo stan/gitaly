@@ -133,7 +133,7 @@ func main() {
 
 	if socketPath := config.Config.SocketPath; socketPath != "" {
 		b.RegisterStarter(func(listen bootstrap.ListenFunc, errCh chan<- error) error {
-			l, err := createUnixListener(listen, socketPath, !b.IsFirstBoot())
+			l, err := createUnixListener(listen, socketPath, b.IsFirstBoot())
 			if err != nil {
 				return err
 			}
@@ -147,10 +147,12 @@ func main() {
 		})
 	}
 
-	for _, cfg := range []struct {
+	type tcpConfig struct {
 		name, addr string
 		s          *grpc.Server
-	}{
+	}
+
+	for _, cfg := range []tcpConfig{
 		{name: "tcp", addr: config.Config.ListenAddr, s: insecureServer},
 		{name: "tls", addr: config.Config.TLSListenAddr, s: secureServer},
 	} {
@@ -158,19 +160,22 @@ func main() {
 			continue
 		}
 
-		b.RegisterStarter(func(listen bootstrap.ListenFunc, errCh chan<- error) error {
-			l, err := listen("tcp", cfg.addr)
-			if err != nil {
-				return err
-			}
+		// be careful with closure over cfg inside for loop
+		func(cfg tcpConfig) {
+			b.RegisterStarter(func(listen bootstrap.ListenFunc, errCh chan<- error) error {
+				l, err := listen("tcp", cfg.addr)
+				if err != nil {
+					return err
+				}
 
-			log.WithField("address", cfg.addr).Infof("listening at %s address", cfg.name)
-			go func() {
-				errCh <- cfg.s.Serve(connectioncounter.New(cfg.name, l))
-			}()
+				log.WithField("address", cfg.addr).Infof("listening at %s address", cfg.name)
+				go func() {
+					errCh <- cfg.s.Serve(connectioncounter.New(cfg.name, l))
+				}()
 
-			return nil
-		})
+				return nil
+			})
+		}(cfg)
 	}
 
 	if addr := config.Config.PrometheusListenAddr; addr != "" {
