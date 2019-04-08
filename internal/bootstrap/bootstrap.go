@@ -17,11 +17,10 @@ import (
 type Bootstrap struct {
 	GracefulStop chan struct{}
 
-	upgrader      *tableflip.Upgrader
-	wg            sync.WaitGroup
-	errChan       chan error
-	starters      []Starter
-	extraStarters []ExtraStarter
+	upgrader *tableflip.Upgrader
+	wg       sync.WaitGroup
+	errChan  chan error
+	starters []Starter
 }
 
 // newBootstrap performs tableflip initialization
@@ -89,17 +88,7 @@ func (b *Bootstrap) RegisterStarter(starter Starter) {
 	b.starters = append(b.starters, starter)
 }
 
-func (b *Bootstrap) RegisterExtraStarter(extra ExtraStarter) {
-	b.extraStarters = append(b.extraStarters, extra)
-}
-
 func (b *Bootstrap) Start() error {
-	for _, s := range b.extraStarters {
-		if err := s(b.upgrader.Fds.Listen); err != nil {
-			return err
-		}
-	}
-
 	b.errChan = make(chan error, len(b.starters))
 
 	for _, start := range b.starters {

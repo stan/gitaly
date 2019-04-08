@@ -179,7 +179,7 @@ func main() {
 	}
 
 	if addr := config.Config.PrometheusListenAddr; addr != "" {
-		b.RegisterExtraStarter(func(listen bootstrap.ListenFunc) error {
+		b.RegisterStarter(func(listen bootstrap.ListenFunc, errCh chan<- error) error {
 			l, err := listen("tcp", addr)
 			if err != nil {
 				return err
@@ -194,8 +194,14 @@ func main() {
 
 			go func() {
 				if err := http.Serve(l, promMux); err != nil {
-					log.WithError(err).Fatal("Unable to serve prometheus")
+					log.WithError(err).Error("Unable to serve prometheus")
 				}
+			}()
+
+			// Prometheus listener should not block graceful shutdown
+			go func() {
+				<-b.GracefulStop
+				errCh <- nil
 			}()
 
 			return nil
