@@ -122,14 +122,13 @@ func (b *Bootstrap) Start() error {
 	return nil
 }
 
-func (b *Bootstrap) Run() {
+func (b *Bootstrap) Run() error {
 	signals := []os.Signal{syscall.SIGTERM, syscall.SIGINT}
 	immediateShutdown := make(chan os.Signal, len(signals))
 	signal.Notify(immediateShutdown, signals...)
 
 	if err := b.upgrader.Ready(); err != nil {
-		log.WithError(err).Error("incomplete bootstrap")
-		return
+		return err
 	}
 
 	var err error
@@ -149,7 +148,7 @@ func (b *Bootstrap) Run() {
 
 	close(b.Stop)
 
-	log.WithError(err).Error("terminating")
+	return err
 }
 
 func (b *Bootstrap) waitGracePeriod(kill <-chan os.Signal) {
