@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"net"
 	"os"
@@ -171,12 +170,10 @@ func (b *bootstrap) run() {
 func (b *bootstrap) waitGracePeriod(kill <-chan os.Signal) {
 	log.WithField("graceful_restart_timeout", config.Config.GracefulRestartTimeout).Warn("starting grace period")
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
+	allServersDone := make(chan struct{})
 	go func() {
 		b.wg.Wait()
-		cancel()
+		close(allServersDone)
 	}()
 
 	select {
@@ -184,7 +181,7 @@ func (b *bootstrap) waitGracePeriod(kill <-chan os.Signal) {
 		log.Error("old process stuck on termination. Grace period expired.")
 	case <-kill:
 		log.Error("force shutdown")
-	case <-ctx.Done():
+	case <-allServersDone:
 		log.Info("graceful stop completed")
 	}
 }
