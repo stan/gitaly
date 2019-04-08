@@ -80,7 +80,6 @@ func New(pidFile string, upgradesEnabled bool) (*Bootstrap, error) {
 type ListenFunc func(net, addr string) (net.Listener, error)
 
 type Starter func(ListenFunc, chan<- error) error
-type ExtraStarter func(ListenFunc) error
 
 func (b *Bootstrap) IsFirstBoot() bool { return !b.upgrader.HasParent() }
 
