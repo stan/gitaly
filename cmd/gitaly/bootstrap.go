@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -24,6 +26,7 @@ type bootstrap struct {
 	secureListeners   []net.Listener
 
 	serversErrors chan error
+	wg            sync.WaitGroup
 }
 
 // newBootstrap performs tableflip initialization
@@ -104,7 +107,9 @@ func (b *bootstrap) listen() error {
 		b.secureListeners = append(b.secureListeners, connectioncounter.New("tls", tlsListener))
 	}
 
-	b.serversErrors = make(chan error, len(b.insecureListeners)+len(b.secureListeners))
+	cnt := len(b.insecureListeners) + len(b.secureListeners)
+	b.serversErrors = make(chan error, cnt)
+	b.wg.Add(cnt)
 
 	return nil
 }
@@ -131,14 +136,14 @@ func (b *bootstrap) run() {
 		insecureServer := server.NewInsecure(ruby)
 		defer insecureServer.Stop()
 
-		serve(insecureServer, b.insecureListeners, b.Exit(), b.serversErrors)
+		b.serve(insecureServer, b.insecureListeners)
 	}
 
 	if len(b.secureListeners) > 0 {
 		secureServer := server.NewSecure(ruby)
 		defer secureServer.Stop()
 
-		serve(secureServer, b.secureListeners, b.Exit(), b.serversErrors)
+		b.serve(secureServer, b.secureListeners)
 	}
 
 	if err := b.Ready(); err != nil {
@@ -166,12 +171,20 @@ func (b *bootstrap) run() {
 func (b *bootstrap) waitGracePeriod(kill <-chan os.Signal) {
 	log.WithField("graceful_restart_timeout", config.Config.GracefulRestartTimeout).Warn("starting grace period")
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() {
+		b.wg.Wait()
+		cancel()
+	}()
+
 	select {
 	case <-time.After(config.Config.GracefulRestartTimeout):
 		log.Error("old process stuck on termination. Grace period expired.")
 	case <-kill:
 		log.Error("force shutdown")
-	case <-b.serversErrors:
+	case <-ctx.Done():
 		log.Info("graceful stop completed")
 	}
 }
@@ -188,9 +201,9 @@ func (b *bootstrap) createUnixListener(socketPath string) (net.Listener, error) 
 	return connectioncounter.New("unix", l), err
 }
 
-func serve(server *grpc.Server, listeners []net.Listener, done <-chan struct{}, errors chan<- error) {
+func (b *bootstrap) serve(server *grpc.Server, listeners []net.Listener) {
 	go func() {
-		<-done
+		<-b.Exit()
 
 		server.GracefulStop()
 	}()
@@ -199,7 +212,8 @@ func serve(server *grpc.Server, listeners []net.Listener, done <-chan struct{}, 
 		// Must pass the listener as a function argument because there is a race
 		// between 'go' and 'for'.
 		go func(l net.Listener) {
-			errors <- server.Serve(l)
+			b.serversErrors <- server.Serve(l)
+			b.wg.Done()
 		}(listener)
 	}
 }

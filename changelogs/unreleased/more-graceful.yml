@@ -1,0 +1,5 @@
+---
+title: Wait for all the socket to terminate during a graceful restart
+merge_request:
+author:
+type: fixed
