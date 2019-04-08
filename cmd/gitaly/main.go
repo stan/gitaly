@@ -205,7 +205,7 @@ func main() {
 		log.WithError(err).Fatal("unable to start listeners")
 	}
 
-	log.WithError(b.Run()).Error("shutting down")
+	log.WithError(b.Wait()).Error("shutting down")
 }
 
 func createUnixListener(listen bootstrap.ListenFunc, socketPath string, removeOld bool) (net.Listener, error) {

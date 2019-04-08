@@ -122,7 +122,7 @@ func (b *Bootstrap) Start() error {
 	return nil
 }
 
-func (b *Bootstrap) Run() error {
+func (b *Bootstrap) Wait() error {
 	signals := []os.Signal{syscall.SIGTERM, syscall.SIGINT}
 	immediateShutdown := make(chan os.Signal, len(signals))
 	signal.Notify(immediateShutdown, signals...)
