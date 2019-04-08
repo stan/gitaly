@@ -69,7 +69,10 @@ func New(pidFile string, upgradesEnabled bool) (*Bootstrap, error) {
 	}
 
 	gracefulStopCh := make(chan struct{})
-	go func() { <-upg.Exit(); close(gracefulStopCh) }()
+	go func() {
+		<-upg.Exit()
+		close(gracefulStopCh)
+	}()
 
 	return &Bootstrap{
 		upgrader:     upg,
