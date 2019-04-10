@@ -115,6 +115,12 @@ func main() {
 
 	tempdir.StartCleaning()
 
+	log.WithError(run(b)).Error("shutting down")
+}
+
+// Inside here we can use deferred functions. This is needed because
+// log.Fatal bypasses deferred functions.
+func run(b *bootstrap.Bootstrap) error {
 	ruby, err := rubyserver.Start()
 	if err != nil {
 		log.WithError(err).Fatal("start ruby server")
@@ -122,8 +128,9 @@ func main() {
 	defer ruby.Stop()
 
 	insecureServer := server.NewInsecure(ruby)
+	defer insecureServer.Stop()
 	secureServer := server.NewSecure(ruby)
-
+	defer secureServer.Stop()
 	for _, s := range []*grpc.Server{insecureServer, secureServer} {
 		go func(s *grpc.Server) {
 			<-b.GracefulStop
@@ -151,7 +158,6 @@ func main() {
 		name, addr string
 		s          *grpc.Server
 	}
-
 	for _, cfg := range []tcpConfig{
 		{name: "tcp", addr: config.Config.ListenAddr, s: insecureServer},
 		{name: "tls", addr: config.Config.TLSListenAddr, s: secureServer},
@@ -207,12 +213,11 @@ func main() {
 			return nil
 		})
 	}
-
 	if err := b.Start(); err != nil {
-		log.WithError(err).Fatal("unable to start listeners")
+		return fmt.Errorf("unable to start the bootstrap: %v", err)
 	}
 
-	log.WithError(b.Wait()).Error("shutting down")
+	return b.Wait()
 }
 
 func createUnixListener(listen bootstrap.ListenFunc, socketPath string, removeOld bool) (net.Listener, error) {
