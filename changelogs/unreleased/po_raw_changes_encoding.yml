@@ -1,0 +1,5 @@
+---
+title: GetRawChanges RPC uses both string and byte path fields
+merge_request: 1207
+author:
+type: fixed
