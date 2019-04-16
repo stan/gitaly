@@ -160,24 +160,24 @@ func setOperationAndPaths(d *rawdiff.Diff, resp *gitalypb.GetRawChangesResponse_
 		return fmt.Errorf("empty diff status")
 	}
 
-	resp.NewPathBytes = d.SrcPath
-	resp.OldPathBytes = d.SrcPath
+	resp.NewPath = d.SrcPath
+	resp.OldPath = d.SrcPath
 
 	switch d.Status[0] {
 	case 'A':
 		resp.Operation = gitalypb.GetRawChangesResponse_RawChange_ADDED
-		resp.OldPathBytes = ""
+		resp.OldPath = ""
 	case 'C':
 		resp.Operation = gitalypb.GetRawChangesResponse_RawChange_COPIED
-		resp.NewPathBytes = d.DstPath
+		resp.NewPath = d.DstPath
 	case 'D':
 		resp.Operation = gitalypb.GetRawChangesResponse_RawChange_DELETED
-		resp.NewPathBytes = ""
+		resp.NewPath = ""
 	case 'M':
 		resp.Operation = gitalypb.GetRawChangesResponse_RawChange_MODIFIED
 	case 'R':
 		resp.Operation = gitalypb.GetRawChangesResponse_RawChange_RENAMED
-		resp.NewPathBytes = d.DstPath
+		resp.NewPath = d.DstPath
 	case 'T':
 		resp.Operation = gitalypb.GetRawChangesResponse_RawChange_TYPE_CHANGED
 	default:
