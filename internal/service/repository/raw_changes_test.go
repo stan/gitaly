@@ -30,20 +30,20 @@ func TestGetRawChanges(t *testing.T) {
 			newRev: "7975be0116940bf2ad4321f79d02a55c5f7779aa",
 			changes: []*gitalypb.GetRawChangesResponse_RawChange{
 				{
-					BlobId:    "c60514b6d3d6bf4bec1030f70026e34dfbd69ad5",
-					Size:      824,
-					NewPath:   "README.md",
-					OldPath:   "README.md",
-					Operation: gitalypb.GetRawChangesResponse_RawChange_MODIFIED,
-					OldMode:   0100644,
-					NewMode:   0100644,
+					BlobId:       "c60514b6d3d6bf4bec1030f70026e34dfbd69ad5",
+					Size:         824,
+					NewPathBytes: "README.md",
+					OldPathBytes: "README.md",
+					Operation:    gitalypb.GetRawChangesResponse_RawChange_MODIFIED,
+					OldMode:      0100644,
+					NewMode:      0100644,
 				},
 				{
-					BlobId:    "723c2c3f4c8a2a1e957f878c8813acfc08cda2b6",
-					Size:      1219696,
-					NewPath:   "files/images/emoji.png",
-					Operation: gitalypb.GetRawChangesResponse_RawChange_ADDED,
-					NewMode:   0100644,
+					BlobId:       "723c2c3f4c8a2a1e957f878c8813acfc08cda2b6",
+					Size:         1219696,
+					NewPathBytes: "files/images/emoji.png",
+					Operation:    gitalypb.GetRawChangesResponse_RawChange_ADDED,
+					NewMode:      0100644,
 				},
 			},
 		},
@@ -52,25 +52,25 @@ func TestGetRawChanges(t *testing.T) {
 			newRev: "1a0b36b3cdad1d2ee32457c102a8c0b7056fa863",
 			changes: []*gitalypb.GetRawChangesResponse_RawChange{
 				{
-					BlobId:    "470ad2fcf1e33798f1afc5781d08e60c40f51e7a",
-					Size:      231,
-					NewPath:   ".gitignore",
-					Operation: gitalypb.GetRawChangesResponse_RawChange_ADDED,
-					NewMode:   0100644,
+					BlobId:       "470ad2fcf1e33798f1afc5781d08e60c40f51e7a",
+					Size:         231,
+					NewPathBytes: ".gitignore",
+					Operation:    gitalypb.GetRawChangesResponse_RawChange_ADDED,
+					NewMode:      0100644,
 				},
 				{
-					BlobId:    "50b27c6518be44c42c4d87966ae2481ce895624c",
-					Size:      1075,
-					NewPath:   "LICENSE",
-					Operation: gitalypb.GetRawChangesResponse_RawChange_ADDED,
-					NewMode:   0100644,
+					BlobId:       "50b27c6518be44c42c4d87966ae2481ce895624c",
+					Size:         1075,
+					NewPathBytes: "LICENSE",
+					Operation:    gitalypb.GetRawChangesResponse_RawChange_ADDED,
+					NewMode:      0100644,
 				},
 				{
-					BlobId:    "faaf198af3a36dbf41961466703cc1d47c61d051",
-					Size:      55,
-					NewPath:   "README.md",
-					Operation: gitalypb.GetRawChangesResponse_RawChange_ADDED,
-					NewMode:   0100644,
+					BlobId:       "faaf198af3a36dbf41961466703cc1d47c61d051",
+					Size:         55,
+					NewPathBytes: "README.md",
+					Operation:    gitalypb.GetRawChangesResponse_RawChange_ADDED,
+					NewMode:      0100644,
 				},
 			},
 		},
@@ -79,13 +79,13 @@ func TestGetRawChanges(t *testing.T) {
 			newRev: "06041ab2037429d243a38abb55957818dd9f948d",
 			changes: []*gitalypb.GetRawChangesResponse_RawChange{
 				{
-					BlobId:    "c84acd1ff0b844201312052f9bb3b7259eb2e177",
-					Size:      23,
-					NewPath:   "files/executables/ls",
-					OldPath:   "files/executables/ls",
-					Operation: gitalypb.GetRawChangesResponse_RawChange_MODIFIED,
-					OldMode:   0100755,
-					NewMode:   0100644,
+					BlobId:       "c84acd1ff0b844201312052f9bb3b7259eb2e177",
+					Size:         23,
+					NewPathBytes: "files/executables/ls",
+					OldPathBytes: "files/executables/ls",
+					Operation:    gitalypb.GetRawChangesResponse_RawChange_MODIFIED,
+					OldMode:      0100755,
+					NewMode:      0100644,
 				},
 			},
 		},
@@ -147,7 +147,7 @@ func TestGetRawChangesSpecialCharacters(t *testing.T) {
 	require.Len(t, changes, nChangedFiles)
 
 	specialFileIdx := 11
-	require.Equal(t, "encoding/テスト.txt", changes[specialFileIdx].NewPath)
+	require.Equal(t, "encoding/テスト.txt", changes[specialFileIdx].NewPathBytes)
 }
 
 func collectChanges(t *testing.T, stream gitalypb.RepositoryService_GetRawChangesClient) []*gitalypb.GetRawChangesResponse_RawChange {
@@ -290,13 +290,13 @@ func TestGetRawChangesMappingOperations(t *testing.T) {
 	}
 
 	firstChange := &gitalypb.GetRawChangesResponse_RawChange{
-		BlobId:    "53855584db773c3df5b5f61f72974cb298822fbb",
-		Size:      22846,
-		NewPath:   "CHANGELOG.md",
-		OldPath:   "CHANGELOG",
-		Operation: gitalypb.GetRawChangesResponse_RawChange_RENAMED,
-		OldMode:   0100644,
-		NewMode:   0100644,
+		BlobId:       "53855584db773c3df5b5f61f72974cb298822fbb",
+		Size:         22846,
+		NewPathBytes: "CHANGELOG.md",
+		OldPathBytes: "CHANGELOG",
+		Operation:    gitalypb.GetRawChangesResponse_RawChange_RENAMED,
+		OldMode:      0100644,
+		NewMode:      0100644,
 	}
 
 	require.Equal(t, firstChange, msg.GetRawChanges()[0])
