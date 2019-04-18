@@ -307,7 +307,7 @@ module Gitlab
       end
 
       def merge_to_ref(user, source_sha, branch, target_ref, message)
-        branch = find_branch(branch)
+        branch = find_branch(branch) || find_ref(branch)
 
         raise InvalidRef unless branch
 
@@ -585,6 +585,13 @@ module Gitlab
         if rugged_ref
           target_commit = Gitlab::Git::Commit.find(self, rugged_ref.target)
           Gitlab::Git::Branch.new(self, rugged_ref.name, rugged_ref.target, target_commit)
+        end
+      end
+
+      def find_ref(name)
+        rugged_ref = rugged.references[name]
+        if rugged_ref
+          Gitlab::Git::Ref.new(self, rugged_ref.name, rugged_ref.target, rugged_ref.target_id)
         end
       end
 
