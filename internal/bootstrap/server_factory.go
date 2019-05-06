@@ -25,8 +25,7 @@ func NewServerFactory() (*serverFactory, error) {
 		return nil, err
 	}
 
-	return &serverFactory{ruby: ruby}, nil
-
+	return &serverFactory{ruby: ruby, servers:make(map[bool]*grpc.Server)}, nil
 }
 
 func (s *serverFactory) Stop() {
@@ -66,14 +65,10 @@ func (s *serverFactory) GracefulStop() {
 	wg.Wait()
 }
 
-func (s *serverFactory) Serve(l net.Listener) error {
-	srv := s.get(isSecure(l.Addr()))
+func (s *serverFactory) Serve(l net.Listener, secure bool) error {
+	srv := s.get(secure)
 
 	return srv.Serve(l)
-}
-
-func isSecure(addr net.Addr) bool {
-	return addr.Network() == "tls"
 }
 
 func (s *serverFactory) get(secure bool) *grpc.Server {

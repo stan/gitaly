@@ -3,7 +3,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"net"
 	"net/http"
 	"os"
 
@@ -129,29 +128,37 @@ func run(b *bootstrap.Bootstrap) error {
 		servers.GracefulStop()
 	}()
 
-	for family, addr := range map[string]string{
-		"unix": config.Config.SocketPath,
-		"tcp":  config.Config.ListenAddr,
-		"tls":  config.Config.TLSListenAddr,
+	type tcpConfig struct {
+		name, family, addr string
+		secure bool
+	}
+
+	for _, c := range []tcpConfig{
+		{ name: "unix", family: "unix", addr: config.Config.SocketPath },
+		{ name: "tcp", family: "tcp", addr:  config.Config.ListenAddr },
+		{ name: "tls", family: "tcp", addr:  config.Config.TLSListenAddr, secure: true},
 	} {
-		if addr == "" {
+		if c.addr == "" {
 			continue
 		}
 
-		b.RegisterStarter(func(listen bootstrap.ListenFunc, errCh chan<- error) error {
-			l, err := listen(family, addr)
-			if err != nil {
-				return err
-			}
+		// be careful with closure over cfg inside for loop
+		func(cfg tcpConfig) {
+			b.RegisterStarter(func(listen bootstrap.ListenFunc, errCh chan<- error) error {
+				l, err := listen(cfg.family, cfg.addr)
+				if err != nil {
+					return err
+				}
 
-			log.WithField("address", addr).Infof("listening at %s address", family)
+				log.WithField("address", cfg.addr).Infof("listening at %s address", cfg.name)
 
-			go func(listener net.Listener) {
-				errCh <- servers.Serve(listener)
-			}(l)
+				go func() {
+					errCh <- servers.Serve(l, cfg.secure)
+				}()
 
-			return nil
-		})
+				return nil
+			})
+		}(c)
 	}
 
 	if addr := config.Config.PrometheusListenAddr; addr != "" {
