@@ -96,7 +96,7 @@ func (b *Bootstrap) Start() error {
 	for _, start := range b.starters {
 		errCh := make(chan error)
 
-		if err := start(b.upgrader.Fds.Listen, errCh); err != nil {
+		if err := start(b.Listen, errCh); err != nil {
 			return err
 		}
 
@@ -155,4 +155,14 @@ func (b *Bootstrap) waitGracePeriod(kill <-chan os.Signal) {
 	case <-allServersDone:
 		log.Info("graceful stop completed")
 	}
+}
+
+func (b *Bootstrap) Listen(network, path string) (net.Listener, error) {
+	if network == "unix" && b.IsFirstBoot() {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return nil, err
+		}
+	}
+
+	return b.upgrader.Fds.Listen(network, path)
 }

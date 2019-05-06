@@ -35,12 +35,12 @@ func TestMain(m *testing.M) {
 	}
 
 	// this is a test suite that triggered an upgrade, we are in the children here
-	l, err := b.createUnixListener(socketPath)
+	l, err := b.Listen("unix", socketPath)
 	if err != nil {
 		panic(err)
 	}
 
-	if err := b.Ready(); err != nil {
+	if err := b.upgrader.Ready(); err != nil {
 		panic(err)
 	}
 
@@ -68,22 +68,22 @@ func TestCreateUnixListener(t *testing.T) {
 
 	require.NoError(t, ioutil.WriteFile(socketPath, nil, 0755))
 
-	l, err := b.createUnixListener(socketPath)
+	l, err := b.Listen("unix", socketPath)
 	require.NoError(t, err)
 
 	done := make(chan struct{})
 	srv := startPidServer(done, l)
 	defer srv.Close()
 
-	require.NoError(t, b.Ready(), "not ready")
+	require.NoError(t, b.upgrader.Ready(), "not ready")
 
 	myPid, err := askPid()
 	require.NoError(t, err)
 	require.Equal(t, os.Getpid(), myPid)
 
 	// we trigger an upgrade and wait for children readiness
-	require.NoError(t, b.Upgrade(), "upgrade failed")
-	<-b.Exit()
+	require.NoError(t, b.upgrader.Upgrade(), "upgrade failed")
+	<-b.upgrader.Exit()
 	require.NoError(t, srv.Close())
 	<-done
 
@@ -124,7 +124,7 @@ func startPidServer(done chan<- struct{}, l net.Listener) *http.Server {
 	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
 		io.WriteString(w, fmt.Sprint(os.Getpid()))
 
-		if b.HasParent() {
+		if !b.IsFirstBoot() {
 			time.AfterFunc(1*time.Second, func() { srv.Close() })
 		}
 	})

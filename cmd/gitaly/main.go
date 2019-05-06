@@ -12,15 +12,12 @@ import (
 	log "github.com/sirupsen/logrus"
 	"gitlab.com/gitlab-org/gitaly/internal/bootstrap"
 	"gitlab.com/gitlab-org/gitaly/internal/config"
-	"gitlab.com/gitlab-org/gitaly/internal/connectioncounter"
 	"gitlab.com/gitlab-org/gitaly/internal/git"
 	"gitlab.com/gitlab-org/gitaly/internal/linguist"
-	"gitlab.com/gitlab-org/gitaly/internal/rubyserver"
 	"gitlab.com/gitlab-org/gitaly/internal/server"
 	"gitlab.com/gitlab-org/gitaly/internal/tempdir"
 	"gitlab.com/gitlab-org/gitaly/internal/version"
 	"gitlab.com/gitlab-org/labkit/tracing"
-	"google.golang.org/grpc"
 )
 
 var (
@@ -121,67 +118,40 @@ func main() {
 // Inside here we can use deferred functions. This is needed because
 // log.Fatal bypasses deferred functions.
 func run(b *bootstrap.Bootstrap) error {
-	ruby, err := rubyserver.Start()
+	servers, err := bootstrap.NewServerFactory()
 	if err != nil {
-		log.WithError(err).Fatal("start ruby server")
+		return err
 	}
-	defer ruby.Stop()
+	defer servers.Stop()
 
-	insecureServer := server.NewInsecure(ruby)
-	defer insecureServer.Stop()
-	secureServer := server.NewSecure(ruby)
-	defer secureServer.Stop()
-	for _, s := range []*grpc.Server{insecureServer, secureServer} {
-		go func(s *grpc.Server) {
-			<-b.GracefulStop
-			s.GracefulStop()
-		}(s)
-	}
+	go func() {
+		<-b.GracefulStop
+		servers.GracefulStop()
+	}()
 
-	if socketPath := config.Config.SocketPath; socketPath != "" {
+	for family, addr := range map[string]string{
+		"unix": config.Config.SocketPath,
+		"tcp":  config.Config.ListenAddr,
+		"tls":  config.Config.TLSListenAddr,
+	} {
+		if addr == "" {
+			continue
+		}
+
 		b.RegisterStarter(func(listen bootstrap.ListenFunc, errCh chan<- error) error {
-			l, err := createUnixListener(listen, socketPath, b.IsFirstBoot())
+			l, err := listen(family, addr)
 			if err != nil {
 				return err
 			}
 
-			log.WithField("address", socketPath).Info("listening on unix socket")
-			go func() {
-				errCh <- insecureServer.Serve(connectioncounter.New("unix", l))
-			}()
+			log.WithField("address", addr).Infof("listening at %s address", family)
+
+			go func(listener net.Listener) {
+				errCh <- servers.Serve(listener)
+			}(l)
 
 			return nil
 		})
-	}
-
-	type tcpConfig struct {
-		name, addr string
-		s          *grpc.Server
-	}
-	for _, cfg := range []tcpConfig{
-		{name: "tcp", addr: config.Config.ListenAddr, s: insecureServer},
-		{name: "tls", addr: config.Config.TLSListenAddr, s: secureServer},
-	} {
-		if cfg.addr == "" {
-			continue
-		}
-
-		// be careful with closure over cfg inside for loop
-		func(cfg tcpConfig) {
-			b.RegisterStarter(func(listen bootstrap.ListenFunc, errCh chan<- error) error {
-				l, err := listen("tcp", cfg.addr)
-				if err != nil {
-					return err
-				}
-
-				log.WithField("address", cfg.addr).Infof("listening at %s address", cfg.name)
-				go func() {
-					errCh <- cfg.s.Serve(connectioncounter.New(cfg.name, l))
-				}()
-
-				return nil
-			})
-		}(cfg)
 	}
 
 	if addr := config.Config.PrometheusListenAddr; addr != "" {
@@ -213,19 +183,10 @@ func run(b *bootstrap.Bootstrap) error {
 			return nil
 		})
 	}
+
 	if err := b.Start(); err != nil {
 		return fmt.Errorf("unable to start the bootstrap: %v", err)
 	}
 
 	return b.Wait()
-}
-
-func createUnixListener(listen bootstrap.ListenFunc, socketPath string, removeOld bool) (net.Listener, error) {
-	if removeOld {
-		if err := os.Remove(socketPath); err != nil && !os.IsNotExist(err) {
-			return nil, err
-		}
-	}
-
-	return listen("unix", socketPath)
 }
