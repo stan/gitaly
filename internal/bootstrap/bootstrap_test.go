@@ -30,12 +30,12 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 
-	if b.IsFirstBoot() {
+	if b.isFirstBoot() {
 		os.Exit(m.Run())
 	}
 
 	// this is a test suite that triggered an upgrade, we are in the children here
-	l, err := b.Listen("unix", socketPath)
+	l, err := b.listen("unix", socketPath)
 	if err != nil {
 		panic(err)
 	}
@@ -68,7 +68,7 @@ func TestCreateUnixListener(t *testing.T) {
 
 	require.NoError(t, ioutil.WriteFile(socketPath, nil, 0755))
 
-	l, err := b.Listen("unix", socketPath)
+	l, err := b.listen("unix", socketPath)
 	require.NoError(t, err)
 
 	done := make(chan struct{})
@@ -124,7 +124,7 @@ func startPidServer(done chan<- struct{}, l net.Listener) *http.Server {
 	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
 		io.WriteString(w, fmt.Sprint(os.Getpid()))
 
-		if !b.IsFirstBoot() {
+		if !b.isFirstBoot() {
 			time.AfterFunc(1*time.Second, func() { srv.Close() })
 		}
 	})

@@ -14,7 +14,9 @@ import (
 	"gitlab.com/gitlab-org/gitaly/internal/config"
 )
 
+// Bootstrap handles graceful upgrades
 type Bootstrap struct {
+	// GracefulStop channel will be closed to command the start of a graceful stop
 	GracefulStop chan struct{}
 
 	upgrader *tableflip.Upgrader
@@ -23,11 +25,13 @@ type Bootstrap struct {
 	starters []Starter
 }
 
-// newBootstrap performs tableflip initialization
+// New performs tableflip initialization
+//  pidFile is optional, if provided it will always contain the current process PID
+//  upgradesEnabled controls the upgrade process on SIGHUP signal
 //
 // first boot:
 // * gitaly starts as usual, we will refer to it as p1
-// * newBootstrap will build a tableflip.Upgrader, we will refer to it as upg
+// * New will build a tableflip.Upgrader, we will refer to it as upg
 // * sockets and files must be opened with upg.Fds
 // * p1 will trap SIGHUP and invoke upg.Upgrade()
 // * when ready to accept incoming connections p1 will call upg.Ready()
@@ -80,23 +84,31 @@ func New(pidFile string, upgradesEnabled bool) (*Bootstrap, error) {
 	}, nil
 }
 
+// ListenFunc is a net.Listener factory
 type ListenFunc func(net, addr string) (net.Listener, error)
 
+// Starter is function to initialize a net.Listener
+// it receives a ListenFunc to be uset for net.Listener creation and a chan<- error to signal runtime errors
+// It must serve incoming connections asynchronously and signal errors on the channel
+// the return value is for setup errors
 type Starter func(ListenFunc, chan<- error) error
 
-func (b *Bootstrap) IsFirstBoot() bool { return !b.upgrader.HasParent() }
+func (b *Bootstrap) isFirstBoot() bool { return !b.upgrader.HasParent() }
 
+// RegisterStarter adds a new starter
 func (b *Bootstrap) RegisterStarter(starter Starter) {
 	b.starters = append(b.starters, starter)
 }
 
+// Start will invoke all the registered starters and wait asynchronously for runtime errors
+// in case a Starter fails then the error is returned ant the function is aborted
 func (b *Bootstrap) Start() error {
 	b.errChan = make(chan error, len(b.starters))
 
 	for _, start := range b.starters {
 		errCh := make(chan error)
 
-		if err := start(b.Listen, errCh); err != nil {
+		if err := start(b.listen, errCh); err != nil {
 			return err
 		}
 
@@ -111,6 +123,9 @@ func (b *Bootstrap) Start() error {
 	return nil
 }
 
+// Wait will signal process readiness to the parent and than wait for an exit condition
+// SIGTERM, SIGINT and a runtime error will trigger an immediate shutdown
+// in case of an upgrade there will be a grace period to complete the ongoing requests
 func (b *Bootstrap) Wait() error {
 	signals := []os.Signal{syscall.SIGTERM, syscall.SIGINT}
 	immediateShutdown := make(chan os.Signal, len(signals))
@@ -157,8 +172,8 @@ func (b *Bootstrap) waitGracePeriod(kill <-chan os.Signal) {
 	}
 }
 
-func (b *Bootstrap) Listen(network, path string) (net.Listener, error) {
-	if network == "unix" && b.IsFirstBoot() {
+func (b *Bootstrap) listen(network, path string) (net.Listener, error) {
+	if network == "unix" && b.isFirstBoot() {
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 			return nil, err
 		}
