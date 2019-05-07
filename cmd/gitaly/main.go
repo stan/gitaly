@@ -128,37 +128,17 @@ func run(b *bootstrap.Bootstrap) error {
 		servers.GracefulStop()
 	}()
 
-	type tcpConfig struct {
-		name, family, addr string
-		secure bool
-	}
-
-	for _, c := range []tcpConfig{
-		{ name: "unix", family: "unix", addr: config.Config.SocketPath },
-		{ name: "tcp", family: "tcp", addr:  config.Config.ListenAddr },
-		{ name: "tls", family: "tcp", addr:  config.Config.TLSListenAddr, secure: true},
+	for _, c := range []starterConfig{
+		{unix, config.Config.SocketPath},
+		{tcp, config.Config.ListenAddr},
+		{tls, config.Config.TLSListenAddr},
 	} {
 		if c.addr == "" {
 			continue
 		}
 
 		// be careful with closure over cfg inside for loop
-		func(cfg tcpConfig) {
-			b.RegisterStarter(func(listen bootstrap.ListenFunc, errCh chan<- error) error {
-				l, err := listen(cfg.family, cfg.addr)
-				if err != nil {
-					return err
-				}
-
-				log.WithField("address", cfg.addr).Infof("listening at %s address", cfg.name)
-
-				go func() {
-					errCh <- servers.Serve(l, cfg.secure)
-				}()
-
-				return nil
-			})
-		}(c)
+		b.RegisterStarter(gitalyStarter(c, servers))
 	}
 
 	if addr := config.Config.PrometheusListenAddr; addr != "" {

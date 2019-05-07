@@ -17,7 +17,13 @@ type serverFactory struct {
 	servers map[bool]*grpc.Server
 }
 
-func NewServerFactory() (*serverFactory, error) {
+type GracefulStoppableServer interface {
+	GracefulStop()
+	Stop()
+	Serve(l net.Listener, secure bool) error
+}
+
+func NewServerFactory() (GracefulStoppableServer, error) {
 	ruby, err := rubyserver.Start()
 	if err != nil {
 		log.Error("start ruby server")
