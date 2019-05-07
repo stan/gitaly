@@ -11,18 +11,18 @@ import (
 )
 
 type serverFactory struct {
-	ruby *rubyserver.Server
-
-	rw      sync.Mutex
+	ruby    *rubyserver.Server
 	servers map[bool]*grpc.Server
 }
 
+// GracefulStoppableServer allows to serve contents on a net.Listener, Stop serving and performing a GracefulStop
 type GracefulStoppableServer interface {
 	GracefulStop()
 	Stop()
 	Serve(l net.Listener, secure bool) error
 }
 
+// NewServerFactory initializes a rubyserver and then lazily initializes both secure and insecure grpc.Server
 func NewServerFactory() (GracefulStoppableServer, error) {
 	ruby, err := rubyserver.Start()
 	if err != nil {
@@ -31,13 +31,10 @@ func NewServerFactory() (GracefulStoppableServer, error) {
 		return nil, err
 	}
 
-	return &serverFactory{ruby: ruby, servers:make(map[bool]*grpc.Server)}, nil
+	return &serverFactory{ruby: ruby, servers: make(map[bool]*grpc.Server)}, nil
 }
 
 func (s *serverFactory) Stop() {
-	s.rw.Lock()
-	defer s.rw.Unlock()
-
 	for _, srv := range s.servers {
 		if srv == nil {
 			continue
@@ -50,9 +47,6 @@ func (s *serverFactory) Stop() {
 }
 
 func (s *serverFactory) GracefulStop() {
-	s.rw.Lock()
-	defer s.rw.Unlock()
-
 	wg := sync.WaitGroup{}
 
 	for _, srv := range s.servers {
@@ -78,9 +72,6 @@ func (s *serverFactory) Serve(l net.Listener, secure bool) error {
 }
 
 func (s *serverFactory) get(secure bool) *grpc.Server {
-	s.rw.Lock()
-	defer s.rw.Unlock()
-
 	srv, ok := s.servers[secure]
 	if !ok {
 		if secure {
