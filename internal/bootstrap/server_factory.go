@@ -11,8 +11,8 @@ import (
 )
 
 type serverFactory struct {
-	ruby    *rubyserver.Server
-	servers map[bool]*grpc.Server
+	ruby             *rubyserver.Server
+	secure, insecure *grpc.Server
 }
 
 // GracefulStoppableServer allows to serve contents on a net.Listener, Stop serving and performing a GracefulStop
@@ -31,15 +31,11 @@ func NewServerFactory() (GracefulStoppableServer, error) {
 		return nil, err
 	}
 
-	return &serverFactory{ruby: ruby, servers: make(map[bool]*grpc.Server)}, nil
+	return &serverFactory{ruby: ruby}, nil
 }
 
 func (s *serverFactory) Stop() {
-	for _, srv := range s.servers {
-		if srv == nil {
-			continue
-		}
-
+	for _, srv := range s.all() {
 		srv.Stop()
 	}
 
@@ -49,11 +45,7 @@ func (s *serverFactory) Stop() {
 func (s *serverFactory) GracefulStop() {
 	wg := sync.WaitGroup{}
 
-	for _, srv := range s.servers {
-		if srv == nil {
-			continue
-		}
-
+	for _, srv := range s.all() {
 		wg.Add(1)
 
 		go func(s *grpc.Server) {
@@ -72,16 +64,30 @@ func (s *serverFactory) Serve(l net.Listener, secure bool) error {
 }
 
 func (s *serverFactory) get(secure bool) *grpc.Server {
-	srv, ok := s.servers[secure]
-	if !ok {
-		if secure {
-			srv = server.NewSecure(s.ruby)
-		} else {
-			srv = server.NewInsecure(s.ruby)
+	if secure {
+		if s.secure == nil {
+			s.secure = server.NewSecure(s.ruby)
 		}
 
-		s.servers[secure] = srv
+		return s.secure
 	}
 
-	return srv
+	if s.insecure == nil {
+		s.insecure = server.NewInsecure(s.ruby)
+	}
+
+	return s.insecure
+}
+
+func (s *serverFactory) all() []*grpc.Server {
+	servers := make([]*grpc.Server, 0, 2)
+	if s.secure != nil {
+		servers = append(servers, s.secure)
+	}
+
+	if s.insecure != nil {
+		servers = append(servers, s.insecure)
+	}
+
+	return servers
 }

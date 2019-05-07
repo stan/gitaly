@@ -101,7 +101,7 @@ func (b *Bootstrap) RegisterStarter(starter Starter) {
 }
 
 // Start will invoke all the registered starters and wait asynchronously for runtime errors
-// in case a Starter fails then the error is returned ant the function is aborted
+// in case a Starter fails then the error is returned and the function is aborted
 func (b *Bootstrap) Start() error {
 	b.errChan = make(chan error, len(b.starters))
 
@@ -137,7 +137,7 @@ func (b *Bootstrap) Wait() error {
 
 	var err error
 	select {
-	case <-b.upgrader.Exit():
+	case <-b.GracefulStop:
 		// this is the old process and a graceful upgrade is in progress
 		// the new process signaled its readiness and we started a graceful stop
 		// however no further upgrades can be started until this process is running
