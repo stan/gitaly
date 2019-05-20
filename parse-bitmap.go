@@ -79,7 +79,7 @@ func _main(packIdx string) error {
 		setFunc := func(i uint32) error {
 			obj := packObjects[i]
 			if obj.objectType != tUnknown {
-				return fmt.Errorf("type already set for object %d", i)
+				return fmt.Errorf("type already set for object %v", obj)
 			}
 
 			obj.objectType = t
@@ -89,6 +89,12 @@ func _main(packIdx string) error {
 
 		if err := parseEWAH(r, setFunc); err != nil {
 			return err
+		}
+	}
+
+	for _, obj := range packObjects {
+		if obj.objectType == tUnknown {
+			return fmt.Errorf("object missing type label: %v", obj)
 		}
 	}
 
