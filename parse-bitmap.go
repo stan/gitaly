@@ -218,7 +218,7 @@ func parseEWAH(r io.Reader, f func(uint32) error) error {
 				return err
 			}
 
-			for j := 0; j < 64; j++ {
+			for j := uint(0); j < 64; j++ {
 				if mask := uint64(1 << j); word&mask >= mask {
 					if err := f(offset); err != nil {
 						return err
