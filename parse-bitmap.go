@@ -164,7 +164,7 @@ func skipEWAH(r io.Reader) error {
 		return err
 	}
 
-	// discard LRW pointer
+	// discard RLW pointer
 	if _, err := readUint32(r); err != nil {
 		return nil
 	}
@@ -186,7 +186,8 @@ func parseEWAH(r io.Reader, f func(uint32) error) error {
 	log.Printf(" ... EWAH with %d bits, %d words", bits, words)
 
 	offset := uint32(0)
-	for wordReader := io.LimitReader(r, int64(words)*8); ; {
+	wordReader := io.LimitReader(r, int64(words)*8)
+	for {
 		header, err := readUint64(wordReader)
 		if err == io.EOF {
 			break
@@ -201,7 +202,7 @@ func parseEWAH(r io.Reader, f func(uint32) error) error {
 
 		for i := uint32(0); i < nClean; i++ {
 			for j := 0; j < 64; j++ {
-				if f != nil && cleanBit == 1 {
+				if cleanBit == 1 {
 					if err := f(offset); err != nil {
 						return err
 					}
@@ -217,12 +218,10 @@ func parseEWAH(r io.Reader, f func(uint32) error) error {
 				return err
 			}
 
-			for j := uint32(0); j < 64; j++ {
-				if f != nil {
-					if mask := uint64(1 << j); word&mask >= mask {
-						if err := f(offset); err != nil {
-							return err
-						}
+			for j := 0; j < 64; j++ {
+				if mask := uint64(1 << j); word&mask >= mask {
+					if err := f(offset); err != nil {
+						return err
 					}
 				}
 
