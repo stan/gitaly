@@ -539,14 +539,14 @@ func (tr *trailerReader) Read(p []byte) (int, error) {
 		tr.left = 0
 		tr.right = bufLen
 
-		m, err := tr.r.Read(tr.buf[tr.right:])
+		n, err := tr.r.Read(tr.buf[tr.right:])
 		if err != nil {
 			if err != io.EOF {
 				return 0, err
 			}
 			tr.atEOF = true
 		}
-		tr.right += m
+		tr.right += n
 	}
 
 	if tr.right-tr.left <= tr.trailerSize {
