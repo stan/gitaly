@@ -17,7 +17,7 @@ import (
 // Bootstrap handles graceful upgrades
 type Bootstrap struct {
 	// GracefulStop channel will be closed to command the start of a graceful stop
-	GracefulStop chan struct{}
+	GracefulStop <-chan struct{}
 
 	upgrader   upgrader
 	listenFunc ListenFunc
@@ -84,16 +84,10 @@ func _new(upg upgrader, listenFunc ListenFunc, upgradesEnabled bool) (*Bootstrap
 		}()
 	}
 
-	gracefulStopCh := make(chan struct{})
-	go func() {
-		<-upg.Exit()
-		close(gracefulStopCh)
-	}()
-
 	return &Bootstrap{
 		upgrader:     upg,
 		listenFunc:   listenFunc,
-		GracefulStop: gracefulStopCh,
+		GracefulStop: upg.Exit(),
 	}, nil
 }
 
