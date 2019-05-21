@@ -1,62 +1,42 @@
 package bootstrap
 
 import (
-	"context"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"net"
 	"net/http"
 	"os"
 	"path"
-	"strconv"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 )
 
-// b is global because tableflip do not allow to init more than one Upgrader per process
-var b *Bootstrap
-var socketPath = path.Join(os.TempDir(), "test-unix-socket")
+type mockUpgrader struct {
+	exit                     chan struct{}
+	hasParent                bool
+	readyError, upgradeError error
+}
 
-// TestMain helps testing bootstrap.
-// When invoked directly it behaves like a normal go test, but if a test performs an upgrade the children will
-// avoid the test suite and start a pid HTTP server on socketPath
-func TestMain(m *testing.M) {
-	var err error
-	b, err = New("", true)
-	if err != nil {
-		panic(err)
-	}
+func (m *mockUpgrader) Exit() <-chan struct{} {
+	return m.exit
+}
 
-	if b.isFirstBoot() {
-		os.Exit(m.Run())
-	}
+func (m *mockUpgrader) HasParent() bool {
+	return m.hasParent
+}
 
-	// this is a test suite that triggered an upgrade, we are in the children here
-	l, err := b.listen("unix", socketPath)
-	if err != nil {
-		panic(err)
-	}
+func (m *mockUpgrader) Ready() error {
+	return m.readyError
+}
 
-	if err := b.upgrader.Ready(); err != nil {
-		panic(err)
-	}
-
-	done := make(chan struct{})
-	srv := startPidServer(done, l)
-
-	select {
-	case <-done:
-	//no op
-	case <-time.After(2 * time.Minute):
-		srv.Close()
-		panic("safeguard against zombie process")
-	}
+func (m *mockUpgrader) Upgrade() error {
+	return m.upgradeError
 }
 
 func TestCreateUnixListener(t *testing.T) {
+	socketPath := path.Join(os.TempDir(), "gitaly-test-unix-socket")
 	// simulate a dangling socket
 	if err := os.Remove(socketPath); err != nil {
 		require.True(t, os.IsNotExist(err), "cannot delete dangling socket: %v", err)
@@ -68,73 +48,75 @@ func TestCreateUnixListener(t *testing.T) {
 
 	require.NoError(t, ioutil.WriteFile(socketPath, nil, 0755))
 
+	listen := func(network, addr string) (net.Listener, error) {
+		require.Equal(t, "unix", network)
+		require.Equal(t, socketPath, addr)
+
+		return net.Listen(network, addr)
+	}
+	u := &mockUpgrader{}
+	b, err := _new(u, listen, false)
+	require.NoError(t, err)
+
 	l, err := b.listen("unix", socketPath)
-	require.NoError(t, err)
+	require.NoError(t, err, "failed to bind on fist boot")
+	require.NoError(t, l.Close())
 
-	done := make(chan struct{})
-	srv := startPidServer(done, l)
-	defer srv.Close()
-
-	require.NoError(t, b.upgrader.Ready(), "not ready")
-
-	myPid, err := askPid()
-	require.NoError(t, err)
-	require.Equal(t, os.Getpid(), myPid)
-
-	// we trigger an upgrade and wait for children readiness
-	require.NoError(t, b.upgrader.Upgrade(), "upgrade failed")
-	<-b.upgrader.Exit()
-	require.NoError(t, srv.Close())
-	<-done
-
-	childPid, err := askPid()
-	require.NoError(t, err)
-	require.NotEqual(t, os.Getpid(), childPid, "this request must be handled by the children")
+	// simulate binding during an upgrade
+	u.hasParent = true
+	l, err = b.listen("unix", socketPath)
+	require.NoError(t, err, "failed to bind on upgrade")
+	require.NoError(t, l.Close())
 }
 
-func askPid() (int, error) {
-	client := &http.Client{
-		Transport: &http.Transport{
-			DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
-				return net.Dial("unix", socketPath)
-			},
-		},
+func TestImmediateTerminationOnSocketError(t *testing.T) {
+	s := http.Server{
+		Handler: http.NotFoundHandler(),
 	}
+	defer s.Close()
 
-	response, err := client.Get("http://unix")
-	if err != nil {
-		return 0, err
-	}
-	defer response.Body.Close()
+	u := &mockUpgrader{}
+	b, err := _new(u, net.Listen, false)
+	require.NoError(t, err)
 
-	pid, err := ioutil.ReadAll(response.Body)
-	if err != nil {
-		return 0, err
-	}
+	listeners := make([]net.Listener, 0, 2)
+	start := func(network, address string) Starter {
+		return func(listen ListenFunc, errors chan<- error) error {
+			l, err := listen(network, address)
+			if err != nil {
+				return err
+			}
+			listeners = append(listeners, l)
 
-	return strconv.Atoi(string(pid))
-}
+			go func() {
+				errors <- s.Serve(l)
+			}()
 
-// startPidServer starts an HTTP server that returns the current PID, if running on a children it will kill itself after serving
-// the first client
-func startPidServer(done chan<- struct{}, l net.Listener) *http.Server {
-	mux := http.NewServeMux()
-	srv := &http.Server{Handler: mux}
-
-	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
-		io.WriteString(w, fmt.Sprint(os.Getpid()))
-
-		if !b.isFirstBoot() {
-			time.AfterFunc(1*time.Second, func() { srv.Close() })
+			return nil
 		}
+	}
+
+	for network, address := range map[string]string{
+		"tcp":  "127.0.0.1:0",
+		"unix": path.Join(os.TempDir(), "gitaly-test-unix-socket"),
+	} {
+		b.RegisterStarter(start(network, address))
+	}
+
+	require.NoError(t, b.Start())
+	require.Equal(t, 2, len(listeners))
+
+	addr := listeners[0].Addr()
+	r, err := http.Get(fmt.Sprintf("http://%s/", addr.String()))
+	require.NoError(t, err)
+	r.Body.Close()
+	require.Equal(t, 404, r.StatusCode)
+
+	time.AfterFunc(500*time.Millisecond, func() {
+		require.NoError(t, listeners[0].Close(), "Closing first listener")
 	})
 
-	go func() {
-		if err := srv.Serve(l); err != http.ErrServerClosed {
-			fmt.Printf("Serve error: %v", err)
-		}
-		close(done)
-	}()
-
-	return srv
+	err = b.Wait()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "use of closed network connection")
 }

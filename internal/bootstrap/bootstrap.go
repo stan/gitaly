@@ -19,10 +19,18 @@ type Bootstrap struct {
 	// GracefulStop channel will be closed to command the start of a graceful stop
 	GracefulStop chan struct{}
 
-	upgrader *tableflip.Upgrader
-	wg       sync.WaitGroup
-	errChan  chan error
-	starters []Starter
+	upgrader   upgrader
+	listenFunc ListenFunc
+	wg         sync.WaitGroup
+	errChan    chan error
+	starters   []Starter
+}
+
+type upgrader interface {
+	Exit() <-chan struct{}
+	HasParent() bool
+	Ready() error
+	Upgrade() error
 }
 
 // New performs tableflip initialization
@@ -55,6 +63,10 @@ func New(pidFile string, upgradesEnabled bool) (*Bootstrap, error) {
 		return nil, err
 	}
 
+	return _new(upg, upg.Fds.Listen, upgradesEnabled)
+}
+
+func _new(upg upgrader, listenFunc ListenFunc, upgradesEnabled bool) (*Bootstrap, error) {
 	if upgradesEnabled {
 		go func() {
 			sig := make(chan os.Signal, 1)
@@ -80,6 +92,7 @@ func New(pidFile string, upgradesEnabled bool) (*Bootstrap, error) {
 
 	return &Bootstrap{
 		upgrader:     upg,
+		listenFunc:   listenFunc,
 		GracefulStop: gracefulStopCh,
 	}, nil
 }
@@ -179,5 +192,5 @@ func (b *Bootstrap) listen(network, path string) (net.Listener, error) {
 		}
 	}
 
-	return b.upgrader.Fds.Listen(network, path)
+	return b.listenFunc(network, path)
 }
