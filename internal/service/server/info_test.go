@@ -48,6 +48,7 @@ func TestGitalyServerInfo(t *testing.T) {
 	require.Len(t, c.GetStorageStatuses(), len(testStorages))
 	require.True(t, c.GetStorageStatuses()[0].Readable)
 	require.True(t, c.GetStorageStatuses()[0].Writeable)
+	require.NotEmpty(t, c.GetStorageStatuses()[0].FsType)
 
 	require.False(t, c.GetStorageStatuses()[1].Readable)
 	require.False(t, c.GetStorageStatuses()[1].Writeable)

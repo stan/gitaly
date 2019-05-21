@@ -9,6 +9,7 @@ import (
 	"gitlab.com/gitlab-org/gitaly-proto/go/gitalypb"
 	"gitlab.com/gitlab-org/gitaly/internal/config"
 	"gitlab.com/gitlab-org/gitaly/internal/git"
+	"gitlab.com/gitlab-org/gitaly/internal/helper/fstype"
 	"gitlab.com/gitlab-org/gitaly/internal/version"
 )
 
@@ -18,10 +19,13 @@ func (s *server) ServerInfo(ctx context.Context, in *gitalypb.ServerInfoRequest)
 	var storageStatuses []*gitalypb.ServerInfoResponse_StorageStatus
 	for _, shard := range config.Config.Storages {
 		readable, writeable := shardCheck(shard.Path)
+		fsType := fstype.FileSystem(shard.Path)
+
 		storageStatuses = append(storageStatuses, &gitalypb.ServerInfoResponse_StorageStatus{
 			StorageName: shard.Name,
 			Readable:    readable,
 			Writeable:   writeable,
+			FsType:      fsType,
 		})
 
 	}
