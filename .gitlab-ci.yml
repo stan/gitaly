@@ -88,6 +88,12 @@ build:go1.11:
   <<: *build_definition
   image: registry.gitlab.com/gitlab-org/gitlab-build-images:ruby-2.6-golang-1.11-git-2.21
 
+build:darwin:
+  <<: *build_definition
+  image: registry.gitlab.com/gitlab-org/gitlab-build-images:ruby-2.6-golang-1.11-git-2.21
+  script:
+    - GOOS=darwin make
+
 binaries_go1.12:
   <<: *assemble_definition
   image: registry.gitlab.com/gitlab-org/gitlab-build-images:ruby-2.6-golang-1.12-git-2.21
