@@ -79,3 +79,24 @@ func TestFailedRepositorySizeRequest(t *testing.T) {
 		})
 	}
 }
+
+func TestSuccessfulGetObjectDirectorySizeRequest(t *testing.T) {
+	server, serverSocketPath := runRepoServer(t)
+	defer server.Stop()
+
+	client, conn := newRepositoryClient(t, serverSocketPath)
+	defer conn.Close()
+
+	request := &gitalypb.GetObjectDirectorySizeRequest{
+		Repository: testhelper.TestRepository(),
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	response, err := client.GetObjectDirectorySize(ctx, request)
+	require.NoError(t, err)
+	// We can't test for an exact size because it will be different for systems with different sector sizes,
+	// so we settle for anything greater than zero.
+	require.True(t, response.Size > 0, "size must be greater than zero")
+}

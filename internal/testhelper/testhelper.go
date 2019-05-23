@@ -118,9 +118,10 @@ func testRepoValid(repo *gitalypb.Repository) bool {
 // via the `Repository` returned from this function.
 func TestRepository() *gitalypb.Repository {
 	repo := &gitalypb.Repository{
-		StorageName:  "default",
-		RelativePath: TestRelativePath,
-		GlRepository: "project-1",
+		StorageName:        "default",
+		RelativePath:       TestRelativePath,
+		GlRepository:       "project-1",
+		GitObjectDirectory: "objects/",
 	}
 
 	if !testRepoValid(repo) {

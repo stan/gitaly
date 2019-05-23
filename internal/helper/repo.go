@@ -93,3 +93,26 @@ func IsGitDirectory(dir string) bool {
 
 	return true
 }
+
+func GetObjectDirectoryPath(repo repository.GitRepo) (string, error) {
+	repoPath, err := GetRepoPath(repo)
+	if err != nil {
+		return "", err
+	}
+
+	objectDirectoryPath := repo.GetGitObjectDirectory()
+	if objectDirectoryPath == "" {
+		return "", status.Errorf(codes.InvalidArgument, "GetObjectDirectoryPath: empty directory")
+	}
+
+	if ContainsPathTraversal(objectDirectoryPath) {
+		return "", status.Errorf(codes.InvalidArgument, "GetObjectDirectoryPath: relative path can't contain directory traversal")
+	}
+
+	fullPath := path.Join(repoPath, objectDirectoryPath)
+	if _, err := os.Stat(fullPath); os.IsNotExist(err) {
+		return "", status.Errorf(codes.NotFound, "GetObjectDirectoryPath: does not exist '%s'", fullPath)
+	}
+
+	return fullPath, nil
+}

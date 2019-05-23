@@ -160,3 +160,77 @@ func TestGetRepoPathWithCorruptedRepo(t *testing.T) {
 		assertInvalidRepoWithoutFile(t, testRepo, testRepoPath, file)
 	}
 }
+
+func TestGetObjectDirectoryPath(t *testing.T) {
+	testRepo := testhelper.TestRepository()
+	repoPath, err := GetRepoPath(testRepo)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	testCases := []struct {
+		desc     string
+		repo     *gitalypb.Repository
+		path     string
+		err      codes.Code
+	}{
+		{
+			desc: "storages configured",
+			repo: &gitalypb.Repository{StorageName: "default", RelativePath: testhelper.TestRelativePath, GitObjectDirectory: "objects/"},
+			path: path.Join(repoPath, "objects/"),
+		},
+		{
+			desc: "no GitObjectDirectoryPath",
+			repo: &gitalypb.Repository{StorageName: "default", RelativePath: testhelper.TestRelativePath},
+			err:  codes.InvalidArgument,
+		},
+		{
+			desc: "with directory traversal",
+			repo: &gitalypb.Repository{StorageName: "default", RelativePath: testhelper.TestRelativePath, GitObjectDirectory: "../bazqux.git"},
+			err:  codes.InvalidArgument,
+		},
+		{
+			desc: "valid path but doesn't exist",
+			repo: &gitalypb.Repository{StorageName: "default", RelativePath: testhelper.TestRelativePath, GitObjectDirectory: "foo../bazqux.git"},
+			err:  codes.NotFound,
+		},
+		{
+			desc: "with sneaky directory traversal",
+			repo: &gitalypb.Repository{StorageName: "default", RelativePath: testhelper.TestRelativePath, GitObjectDirectory: "/../bazqux.git"},
+			err:  codes.InvalidArgument,
+		},
+		{
+			desc: "with one level traversal at the end",
+			repo: &gitalypb.Repository{StorageName: "default", RelativePath: testhelper.TestRelativePath, GitObjectDirectory: "objects/.."},
+			err:  codes.InvalidArgument,
+		},
+		{
+			desc: "with one level dashed traversal at the end",
+			repo: &gitalypb.Repository{StorageName: "default", RelativePath: testhelper.TestRelativePath, GitObjectDirectory: "objects/../"},
+			err:  codes.InvalidArgument,
+		},
+		{
+			desc: "with deep traversal at the end",
+			repo: &gitalypb.Repository{StorageName: "default", RelativePath: testhelper.TestRelativePath, GitObjectDirectory: "bazqux.git/../.."},
+			err:  codes.InvalidArgument,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.desc, func(t *testing.T) {
+			path, err := GetObjectDirectoryPath(tc.repo)
+
+			if tc.err != codes.OK {
+				testhelper.RequireGrpcError(t, err, tc.err)
+				return
+			}
+
+			if err != nil {
+				assert.NoError(t, err)
+				return
+			}
+
+			assert.Equal(t, tc.path, path)
+		})
+	}
+}
