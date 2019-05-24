@@ -150,7 +150,7 @@ func TestGracefulTerminationWithSignals(t *testing.T) {
 				require.NoError(t, self.Signal(sig))
 			})
 
-			testGracefulUpdate(t, helper, b)
+			require.Contains(t, testGracefulUpdate(t, helper, b).Error(), "force shutdown")
 		})
 	}
 }
@@ -158,8 +158,10 @@ func TestGracefulTerminationWithSignals(t *testing.T) {
 func TestGracefulTerminationStuck(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
 	defer cancel()
+
 	b, helper := makeBootstrap(ctx, t)
-	testGracefulUpdate(t, helper, b)
+
+	require.Contains(t, testGracefulUpdate(t, helper, b).Error(), "grace period expired")
 }
 
 func TestGracefulTerminationServerErrors(t *testing.T) {
@@ -171,7 +173,7 @@ func TestGracefulTerminationServerErrors(t *testing.T) {
 	// This is a simulation of receiving a listener error during during waitGracePeriod
 	b.StopAction = func() {
 		// we close the unix listener in order to keep the shutdown stuck on the TCP request
-		require.NoError(t, helper.listeners["unix"].Close(), "Closing first listener")
+		require.NoError(t, helper.listeners["unix"].Close())
 
 		// we start a new TCP request that if faster than the grace period
 		req := helper.slowRequest(config.Config.GracefulRestartTimeout / 2)
@@ -181,13 +183,23 @@ func TestGracefulTerminationServerErrors(t *testing.T) {
 		helper.server.Shutdown(ctx)
 	}
 
-	testGracefulUpdate(t, helper, b)
+	require.Contains(t, testGracefulUpdate(t, helper, b).Error(), "grace period expired")
 
 	require.NoError(t, <-done)
-	<-done
 }
 
-func testGracefulUpdate(t *testing.T, helper *testHelper, b *Bootstrap) {
+func TestGracefulTermination(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
+	defer cancel()
+	b, helper := makeBootstrap(ctx, t)
+
+	// Using server.Close we bypass the graceful shutdown faking a completed shutdown
+	b.StopAction = func() { helper.server.Close() }
+
+	require.Contains(t, testGracefulUpdate(t, helper, b).Error(), "completed")
+}
+
+func testGracefulUpdate(t *testing.T, helper *testHelper, b *Bootstrap) error {
 	defer func(oldVal time.Duration) {
 		config.Config.GracefulRestartTimeout = oldVal
 	}(config.Config.GracefulRestartTimeout)
@@ -199,13 +211,15 @@ func testGracefulUpdate(t *testing.T, helper *testHelper, b *Bootstrap) {
 		b.upgrader.Upgrade()
 	})
 
-	err := b.Wait()
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "graceful upgrade")
+	waitErr := b.Wait()
+	require.Error(t, waitErr)
+	require.Contains(t, waitErr.Error(), "graceful upgrade")
 
 	helper.server.Close()
 
 	require.Error(t, <-req)
+
+	return waitErr
 }
 
 func makeBootstrap(ctx context.Context, t *testing.T) (*Bootstrap, *testHelper) {

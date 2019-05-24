@@ -137,9 +137,9 @@ func (b *Bootstrap) Wait() error {
 		// the new process signaled its readiness and we started a graceful stop
 		// however no further upgrades can be started until this process is running
 		// we set a grace period and then we force a termination.
-		b.waitGracePeriod(immediateShutdown)
+		waitError := b.waitGracePeriod(immediateShutdown)
 
-		err = fmt.Errorf("graceful upgrade")
+		err = fmt.Errorf("graceful upgrade: %v", waitError)
 	case s := <-immediateShutdown:
 		err = fmt.Errorf("received signal %q", s)
 	case err = <-b.errChan:
@@ -148,7 +148,7 @@ func (b *Bootstrap) Wait() error {
 	return err
 }
 
-func (b *Bootstrap) waitGracePeriod(kill <-chan os.Signal) {
+func (b *Bootstrap) waitGracePeriod(kill <-chan os.Signal) error {
 	log.WithField("graceful_restart_timeout", config.Config.GracefulRestartTimeout).Warn("starting grace period")
 
 	allServersDone := make(chan struct{})
@@ -161,11 +161,11 @@ func (b *Bootstrap) waitGracePeriod(kill <-chan os.Signal) {
 
 	select {
 	case <-time.After(config.Config.GracefulRestartTimeout):
-		log.Error("old process stuck on termination. Grace period expired.")
+		return fmt.Errorf("grace period expired")
 	case <-kill:
-		log.Error("force shutdown")
+		return fmt.Errorf("force shutdown")
 	case <-allServersDone:
-		log.Info("graceful stop completed")
+		return fmt.Errorf("completed")
 	}
 }
 
