@@ -19,9 +19,8 @@ import (
 )
 
 type mockUpgrader struct {
-	exit                     chan struct{}
-	hasParent                bool
-	readyError, upgradeError error
+	exit      chan struct{}
+	hasParent bool
 }
 
 func (m *mockUpgrader) Exit() <-chan struct{} {
@@ -32,14 +31,35 @@ func (m *mockUpgrader) HasParent() bool {
 	return m.hasParent
 }
 
-func (m *mockUpgrader) Ready() error {
-	return m.readyError
-}
+func (m *mockUpgrader) Ready() error { return nil }
 
 func (m *mockUpgrader) Upgrade() error {
 	// to upgrade we close the exit channel
 	close(m.exit)
-	return m.upgradeError
+	return nil
+}
+
+type testHelper struct {
+	t         *testing.T
+	ctx       context.Context
+	server    *http.Server
+	listeners map[string]net.Listener
+	url       string
+}
+
+func (t *testHelper) slowRequest(duration time.Duration) <-chan error {
+	done := make(chan error)
+
+	go func() {
+		r, err := http.Get(fmt.Sprintf("%sslow?seconds=%d", t.url, int(duration.Seconds())))
+		if r != nil {
+			r.Body.Close()
+		}
+
+		done <- err
+	}()
+
+	return done
 }
 
 func TestCreateUnixListener(t *testing.T) {
@@ -79,10 +99,10 @@ func TestCreateUnixListener(t *testing.T) {
 func TestImmediateTerminationOnSocketError(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	b, _, listeners := makeBootstrap(ctx, t)
+	b, helper := makeBootstrap(ctx, t)
 
 	time.AfterFunc(500*time.Millisecond, func() {
-		require.NoError(t, listeners["tcp"].Close(), "Closing first listener")
+		require.NoError(t, helper.listeners["tcp"].Close(), "Closing first listener")
 	})
 
 	err := b.Wait()
@@ -95,9 +115,9 @@ func TestImmediateTerminationOnSignal(t *testing.T) {
 		t.Run(sig.String(), func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
 			defer cancel()
-			b, url, _ := makeBootstrap(ctx, t)
+			b, helper := makeBootstrap(ctx, t)
 
-			go slowRequest(t, url, 3*time.Minute, true)
+			done := helper.slowRequest(3 * time.Minute)
 
 			time.AfterFunc(500*time.Millisecond, func() {
 				self, err := os.FindProcess(os.Getpid())
@@ -110,65 +130,87 @@ func TestImmediateTerminationOnSignal(t *testing.T) {
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "received signal")
 			require.Contains(t, err.Error(), sig.String())
+
+			helper.server.Close()
+
+			require.Error(t, <-done)
 		})
 	}
 }
 
-func TestImmediateTerminationGracePeriod(t *testing.T) {
-	defer func(oldVal time.Duration) {
-		config.Config.GracefulRestartTimeout = oldVal
-	}(config.Config.GracefulRestartTimeout)
-	config.Config.GracefulRestartTimeout = 10 * time.Second
-
-	basicTest := func(t *testing.T, graceful bool) {
-		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
-		defer cancel()
-		b, url, _ := makeBootstrap(ctx, t)
-
-		go slowRequest(t, url, 2*time.Second, graceful)
-
-		time.AfterFunc(300*time.Millisecond, func() {
-			b.upgrader.Upgrade()
-		})
-
-		err := b.Wait()
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "graceful upgrade")
-	}
-
-	t.Run("complete", func(t *testing.T) {
-		basicTest(t, true)
-	})
+func TestGracefulTerminationWithSignals(t *testing.T) {
+	self, err := os.FindProcess(os.Getpid())
+	require.NoError(t, err)
 
 	for _, sig := range []syscall.Signal{syscall.SIGTERM, syscall.SIGINT} {
 		t.Run(sig.String(), func(t *testing.T) {
-			time.AfterFunc(700*time.Millisecond, func() {
-				self, err := os.FindProcess(os.Getpid())
-				require.NoError(t, err)
+			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
+			defer cancel()
+			b, helper := makeBootstrap(ctx, t)
 
+			time.AfterFunc(500*time.Millisecond, func() {
 				require.NoError(t, self.Signal(sig))
 			})
 
-			basicTest(t, false)
+			testGracefulUpdate(helper, b)
 		})
 	}
-
-	t.Run("stuck", func(t *testing.T) {
-		basicTest(t, true)
-	})
 }
 
-func slowRequest(t *testing.T, url string, duration time.Duration, failure bool) {
-	r, err := http.Get(fmt.Sprintf("%sslow?seconds=%d", url, int(duration.Seconds())))
-	if failure {
-		require.Error(t, err)
-	} else {
-		require.NoError(t, err)
-		r.Body.Close()
+func TestGracefulTerminationStuck(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
+	defer cancel()
+	b, helper := makeBootstrap(ctx, t)
+	testGracefulUpdate(helper, b)
+}
+
+func TestGracefulTerminationServerErrors(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
+	defer cancel()
+	b, helper := makeBootstrap(ctx, t)
+
+	done := make(chan error, 1)
+	// This is a simulation of receiving a listener error during during waitGracePeriod
+	b.GracefulStopAction = func() {
+		// we close the unix listener in order to keep the shutdown stuck on the TCP request
+		require.NoError(t, helper.listeners["unix"].Close(), "Closing first listener")
+
+		// we start a new TCP request that if faster than the grace period
+		req := helper.slowRequest(config.Config.GracefulRestartTimeout / 2)
+		done <- <-req
+		close(done)
+
+		helper.server.Shutdown(helper.ctx)
 	}
+
+	testGracefulUpdate(helper, b)
+
+	require.NoError(t, <-done)
+	<-done
 }
 
-func makeBootstrap(ctx context.Context, t *testing.T) (*Bootstrap, string, map[string]net.Listener) {
+func testGracefulUpdate(helper *testHelper, b *Bootstrap) {
+	defer func(oldVal time.Duration) {
+		config.Config.GracefulRestartTimeout = oldVal
+	}(config.Config.GracefulRestartTimeout)
+	config.Config.GracefulRestartTimeout = 2 * time.Second
+
+	req := helper.slowRequest(2 * config.Config.GracefulRestartTimeout)
+
+	time.AfterFunc(300*time.Millisecond, func() {
+		b.upgrader.Upgrade()
+	})
+
+	err := b.Wait()
+	require.Error(helper.t, err)
+	require.Contains(helper.t, err.Error(), "graceful upgrade")
+
+	helper.server.Close()
+
+	require.Error(helper.t, <-req)
+}
+
+func makeBootstrap(ctx context.Context, t *testing.T) (*Bootstrap, *testHelper) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(200)
@@ -176,6 +218,8 @@ func makeBootstrap(ctx context.Context, t *testing.T) (*Bootstrap, string, map[s
 	mux.HandleFunc("/slow", func(w http.ResponseWriter, r *http.Request) {
 		sec, err := strconv.Atoi(r.URL.Query().Get("seconds"))
 		require.NoError(t, err)
+
+		t.Logf("Serving a slow request for %d seconds", sec)
 		time.Sleep(time.Duration(sec) * time.Second)
 
 		w.WriteHeader(200)
@@ -184,17 +228,10 @@ func makeBootstrap(ctx context.Context, t *testing.T) (*Bootstrap, string, map[s
 	s := http.Server{Handler: mux}
 	u := &mockUpgrader{exit: make(chan struct{})}
 
-	go func() {
-		select {
-		case <-ctx.Done():
-			close(u.exit)
-		case <-u.exit:
-			s.Shutdown(ctx)
-		}
-	}()
-
 	b, err := _new(u, net.Listen, false)
 	require.NoError(t, err)
+
+	b.GracefulStopAction = func() { s.Shutdown(ctx) }
 
 	listeners := make(map[string]net.Listener)
 	start := func(network, address string) Starter {
@@ -232,5 +269,11 @@ func makeBootstrap(ctx context.Context, t *testing.T) (*Bootstrap, string, map[s
 	r.Body.Close()
 	require.Equal(t, 200, r.StatusCode)
 
-	return b, url, listeners
+	return b, &testHelper{
+		server:    &s,
+		listeners: listeners,
+		ctx:       ctx,
+		t:         t,
+		url:       url,
+	}
 }

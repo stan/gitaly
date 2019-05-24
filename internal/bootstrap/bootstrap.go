@@ -5,7 +5,6 @@ import (
 	"net"
 	"os"
 	"os/signal"
-	"sync"
 	"syscall"
 	"time"
 
@@ -18,10 +17,11 @@ import (
 type Bootstrap struct {
 	// GracefulStop channel will be closed to command the start of a graceful stop
 	GracefulStop <-chan struct{}
+	// GracefulStopAction will be invoked during a graceful stop. It must wait until the shutdown is completed
+	GracefulStopAction func()
 
 	upgrader   upgrader
 	listenFunc ListenFunc
-	wg         sync.WaitGroup
 	errChan    chan error
 	starters   []Starter
 }
@@ -95,7 +95,7 @@ func _new(upg upgrader, listenFunc ListenFunc, upgradesEnabled bool) (*Bootstrap
 type ListenFunc func(net, addr string) (net.Listener, error)
 
 // Starter is function to initialize a net.Listener
-// it receives a ListenFunc to be uset for net.Listener creation and a chan<- error to signal runtime errors
+// it receives a ListenFunc to be used for net.Listener creation and a chan<- error to signal runtime errors
 // It must serve incoming connections asynchronously and signal errors on the channel
 // the return value is for setup errors
 type Starter func(ListenFunc, chan<- error) error
@@ -119,10 +119,8 @@ func (b *Bootstrap) Start() error {
 			return err
 		}
 
-		b.wg.Add(1)
 		go func(errCh chan error) {
 			err := <-errCh
-			b.wg.Done()
 			b.errChan <- err
 		}(errCh)
 	}
@@ -165,7 +163,9 @@ func (b *Bootstrap) waitGracePeriod(kill <-chan os.Signal) {
 
 	allServersDone := make(chan struct{})
 	go func() {
-		b.wg.Wait()
+		if b.GracefulStopAction != nil {
+			b.GracefulStopAction()
+		}
 		close(allServersDone)
 	}()
 

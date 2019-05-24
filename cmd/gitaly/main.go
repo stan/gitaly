@@ -123,10 +123,7 @@ func run(b *bootstrap.Bootstrap) error {
 	}
 	defer servers.Stop()
 
-	go func() {
-		<-b.GracefulStop
-		servers.GracefulStop()
-	}()
+	b.GracefulStopAction = servers.GracefulStop
 
 	for _, c := range []starterConfig{
 		{unix, config.Config.SocketPath},
