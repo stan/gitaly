@@ -114,7 +114,7 @@ func TestDisconnectGitAlternatesUnexpectedAlternates(t *testing.T) {
 			require.NoError(t, ioutil.WriteFile(altPath, []byte(tc.altContent), 0644))
 
 			_, err = client.DisconnectGitAlternates(ctx, &gitalypb.DisconnectGitAlternatesRequest{Repository: testRepo})
-			require.Error(t, err, "call DisconnectGitAlternates on repository with multiple alternates")
+			require.Error(t, err, "call DisconnectGitAlternates on repository with unexpected objects/info/alternates")
 
 			contentAfterRPC, err := ioutil.ReadFile(altPath)
 			require.NoError(t, err, "read back objects/info/alternates")
