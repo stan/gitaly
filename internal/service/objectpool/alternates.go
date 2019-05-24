@@ -62,33 +62,20 @@ func disconnectAlternates(ctx context.Context, repo *gitalypb.Repository) error 
 
 	altDir := strings.TrimSpace(string(altContents))
 	if strings.Contains(altDir, "\n") {
-		return fmt.Errorf("found multiple lines in %s", altFile)
+		return &invalidAlternatesError{altContents: altContents}
 	}
 
 	if !filepath.IsAbs(altDir) {
 		altDir = filepath.Join(repoPath, "objects", altDir)
 	}
 
-	backupFile, err := newBackupFile(altFile)
-	if err != nil {
-		return err
-	}
-
 	stat, err := os.Stat(altDir)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-
 		return err
 	}
 
 	if !stat.IsDir() {
-		// The existing alternates file is bogus. There can be no objects on the
-		// other end that the current repository relies on, so we could just
-		// delete objects/info/alternates. To be a little more careful, instead of
-		// deleting it we rename it.
-		return os.Rename(altFile, backupFile)
+		return &invalidAlternatesError{altContents: altContents}
 	}
 
 	objectFiles, err := findObjectFiles(altDir)
@@ -111,6 +98,11 @@ func disconnectAlternates(ctx context.Context, repo *gitalypb.Repository) error 
 
 			return err
 		}
+	}
+
+	backupFile, err := newBackupFile(altFile)
+	if err != nil {
+		return err
 	}
 
 	return removeAlternatesIfOk(ctx, repo, altFile, backupFile)
@@ -161,6 +153,14 @@ type fsckError struct{ error }
 
 func (fe *fsckError) Error() string {
 	return fmt.Sprintf("git fsck error while disconnected: %v", fe.error)
+}
+
+type invalidAlternatesError struct {
+	altContents []byte
+}
+
+func (e *invalidAlternatesError) Error() string {
+	return fmt.Sprintf("invalid content in objects/info/alternates: %q", e.altContents)
 }
 
 // removeAlternatesIfOk is dangerous. We optimistically temporarily
