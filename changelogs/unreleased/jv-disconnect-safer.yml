@@ -1,0 +1,5 @@
+---
+title: 'DisconnectGitAlternates: bail out more often'
+merge_request: 1266
+author:
+type: changed
