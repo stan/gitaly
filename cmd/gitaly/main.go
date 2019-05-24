@@ -123,7 +123,7 @@ func run(b *bootstrap.Bootstrap) error {
 	}
 	defer servers.Stop()
 
-	b.GracefulStopAction = servers.GracefulStop
+	b.StopAction = servers.GracefulStop
 
 	for _, c := range []starterConfig{
 		{unix, config.Config.SocketPath},
@@ -139,7 +139,7 @@ func run(b *bootstrap.Bootstrap) error {
 	}
 
 	if addr := config.Config.PrometheusListenAddr; addr != "" {
-		b.RegisterStarter(func(listen bootstrap.ListenFunc, errCh chan<- error) error {
+		b.RegisterStarter(func(listen bootstrap.ListenFunc, _ chan<- error) error {
 			l, err := listen("tcp", addr)
 			if err != nil {
 				return err
@@ -156,12 +156,6 @@ func run(b *bootstrap.Bootstrap) error {
 				if err := http.Serve(l, promMux); err != nil {
 					log.WithError(err).Error("Unable to serve prometheus")
 				}
-			}()
-
-			// Prometheus listener should not block graceful shutdown
-			go func() {
-				<-b.GracefulStop
-				errCh <- nil
 			}()
 
 			return nil

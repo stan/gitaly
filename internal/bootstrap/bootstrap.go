@@ -15,10 +15,8 @@ import (
 
 // Bootstrap handles graceful upgrades
 type Bootstrap struct {
-	// GracefulStop channel will be closed to command the start of a graceful stop
-	GracefulStop <-chan struct{}
-	// GracefulStopAction will be invoked during a graceful stop. It must wait until the shutdown is completed
-	GracefulStopAction func()
+	// StopAction will be invoked during a graceful stop. It must wait until the shutdown is completed
+	StopAction func()
 
 	upgrader   upgrader
 	listenFunc ListenFunc
@@ -85,9 +83,8 @@ func _new(upg upgrader, listenFunc ListenFunc, upgradesEnabled bool) (*Bootstrap
 	}
 
 	return &Bootstrap{
-		upgrader:     upg,
-		listenFunc:   listenFunc,
-		GracefulStop: upg.Exit(),
+		upgrader:   upg,
+		listenFunc: listenFunc,
 	}, nil
 }
 
@@ -113,16 +110,9 @@ func (b *Bootstrap) Start() error {
 	b.errChan = make(chan error, len(b.starters))
 
 	for _, start := range b.starters {
-		errCh := make(chan error)
-
-		if err := start(b.listen, errCh); err != nil {
+		if err := start(b.listen, b.errChan); err != nil {
 			return err
 		}
-
-		go func(errCh chan error) {
-			err := <-errCh
-			b.errChan <- err
-		}(errCh)
 	}
 
 	return nil
@@ -142,7 +132,7 @@ func (b *Bootstrap) Wait() error {
 
 	var err error
 	select {
-	case <-b.GracefulStop:
+	case <-b.upgrader.Exit():
 		// this is the old process and a graceful upgrade is in progress
 		// the new process signaled its readiness and we started a graceful stop
 		// however no further upgrades can be started until this process is running
@@ -163,8 +153,8 @@ func (b *Bootstrap) waitGracePeriod(kill <-chan os.Signal) {
 
 	allServersDone := make(chan struct{})
 	go func() {
-		if b.GracefulStopAction != nil {
-			b.GracefulStopAction()
+		if b.StopAction != nil {
+			b.StopAction()
 		}
 		close(allServersDone)
 	}()
