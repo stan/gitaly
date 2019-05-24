@@ -40,8 +40,6 @@ func (m *mockUpgrader) Upgrade() error {
 }
 
 type testHelper struct {
-	t         *testing.T
-	ctx       context.Context
 	server    *http.Server
 	listeners map[string]net.Listener
 	url       string
@@ -152,7 +150,7 @@ func TestGracefulTerminationWithSignals(t *testing.T) {
 				require.NoError(t, self.Signal(sig))
 			})
 
-			testGracefulUpdate(helper, b)
+			testGracefulUpdate(t, helper, b)
 		})
 	}
 }
@@ -161,7 +159,7 @@ func TestGracefulTerminationStuck(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
 	defer cancel()
 	b, helper := makeBootstrap(ctx, t)
-	testGracefulUpdate(helper, b)
+	testGracefulUpdate(t, helper, b)
 }
 
 func TestGracefulTerminationServerErrors(t *testing.T) {
@@ -180,16 +178,16 @@ func TestGracefulTerminationServerErrors(t *testing.T) {
 		done <- <-req
 		close(done)
 
-		helper.server.Shutdown(helper.ctx)
+		helper.server.Shutdown(ctx)
 	}
 
-	testGracefulUpdate(helper, b)
+	testGracefulUpdate(t, helper, b)
 
 	require.NoError(t, <-done)
 	<-done
 }
 
-func testGracefulUpdate(helper *testHelper, b *Bootstrap) {
+func testGracefulUpdate(t *testing.T, helper *testHelper, b *Bootstrap) {
 	defer func(oldVal time.Duration) {
 		config.Config.GracefulRestartTimeout = oldVal
 	}(config.Config.GracefulRestartTimeout)
@@ -202,12 +200,12 @@ func testGracefulUpdate(helper *testHelper, b *Bootstrap) {
 	})
 
 	err := b.Wait()
-	require.Error(helper.t, err)
-	require.Contains(helper.t, err.Error(), "graceful upgrade")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "graceful upgrade")
 
 	helper.server.Close()
 
-	require.Error(helper.t, <-req)
+	require.Error(t, <-req)
 }
 
 func makeBootstrap(ctx context.Context, t *testing.T) (*Bootstrap, *testHelper) {
@@ -272,8 +270,6 @@ func makeBootstrap(ctx context.Context, t *testing.T) (*Bootstrap, *testHelper) 
 	return b, &testHelper{
 		server:    &s,
 		listeners: listeners,
-		ctx:       ctx,
-		t:         t,
 		url:       url,
 	}
 }
