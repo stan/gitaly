@@ -96,7 +96,7 @@ GEM
       opentracing (~> 0.3)
       thrift
     jaro_winkler (1.5.2)
-    json (2.2.0)
+    json (2.3.1)
     licensee (8.9.2)
       rugged (~> 0.24)
     listen (0.5.3)
